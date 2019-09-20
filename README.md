@@ -5,8 +5,9 @@ A prototype/sample/example of how to do it...
 - Using the preview ServiceFabricMesh preview apis generated from the Azure api documetation. 
 - Modifying the Azure DevOps Docker example to include the downloaded agent directly in the docker image
 
-Polls the Application and Service.
-Polls the Container for logs.
+Once the Mesh gets create...
+- Polls the Application and Service.
+- Polls the Container for logs.
 
 ## Usage
 ```
