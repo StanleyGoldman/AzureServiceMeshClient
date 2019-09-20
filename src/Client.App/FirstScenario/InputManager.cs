@@ -31,7 +31,7 @@ namespace Client.App.FirstScenario
                 return 1;
             }
 
-            ColorConsole.WithBlueText.WriteLine("Press [ENTER] to CREATE/DISPOSE of a built agent");
+            ColorConsole.WithBlueText.WriteLine("Press [ENTER] to CREATE/DELETE the build agent mesh");
             ColorConsole.WithBlueText.WriteLine("Press [Q] to quit the simulation");
 
             try
