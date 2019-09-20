@@ -1,23 +1,19 @@
 {
   "profiles": {
-    "Main Help": {
+    "Client": {
       "commandName": "Project",
-      "commandLineArgs": "-?"
+      "commandLineArgs": "-rg stgoldma -n stgoldmamesh-image2 -i stgoldma.azurecr.io/stgoldma/azureagent:latest -ci a45b2ebd-bb85-480e-9ae0-64a2942e896e -irs stgoldma.azurecr.io -iru stgoldma -azpu https://dev.azure.com/stgoldma/"
     },
-    "Scenario1 Help": {
+    "Client Tracing": {
       "commandName": "Project",
-      "commandLineArgs": "scenario1 -?"
-    },
-    "Scenario1": {
-      "commandName": "Project",
-      "commandLineArgs": "scenario1 -rg stgoldma -n stgoldmamesh-image2 -i stgoldma.azurecr.io/stgoldma/azureagent:latest -ci a45b2ebd-bb85-480e-9ae0-64a2942e896e -irs stgoldma.azurecr.io -iru stgoldma -azpu https://dev.azure.com/stgoldma/"
-    },
-    "Scenario1 Tracing": {
-      "commandName": "Project",
-      "commandLineArgs": "scenario1 -rg stgoldma -n stgoldmamesh-image2 -i stgoldma.azurecr.io/stgoldma/azureagent:latest -ci a45b2ebd-bb85-480e-9ae0-64a2942e896e -irs stgoldma.azurecr.io -iru stgoldma -azpu https://dev.azure.com/stgoldma/",
+      "commandLineArgs": "-rg stgoldma -n stgoldmamesh-image2 -i stgoldma.azurecr.io/stgoldma/azureagent:latest -ci a45b2ebd-bb85-480e-9ae0-64a2942e896e -irs stgoldma.azurecr.io -iru stgoldma -azpu https://dev.azure.com/stgoldma/",
       "environmentVariables": {
         "AzureServiceMeshClient_EnableTracing": "1"
       }
+    },
+    "Help": {
+      "commandName": "Project",
+      "commandLineArgs": "-?"
     }
   }
 }
