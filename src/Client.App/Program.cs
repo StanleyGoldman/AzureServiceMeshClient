@@ -89,12 +89,12 @@ namespace Client.App
                     .IsRequired();
 
                 var tenantId = configCmd
-                    .Option("-t|--tenantId", "Tenant ID",
+                    .Option("-t|--tenantId", $"Tenant ID (or env:'{tenantIdEnvVar}')",
                         CommandOptionType.SingleValue)
                     .IsRequired();
 
                 var subscriptionId = configCmd
-                    .Option("-s|--subscriptionId", "Subscription ID",
+                    .Option("-s|--subscriptionId", $"Subscription ID (or env:'{subscriptionIdEnvVar}')",
                         CommandOptionType.SingleValue)
                     .IsRequired();
 
