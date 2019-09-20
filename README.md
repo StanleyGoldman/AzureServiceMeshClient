@@ -43,7 +43,7 @@ Options:
 Press [ENTER] to CREATE/DELETE the build agent mesh
 Press [Q] to quit the simulation
 11:26:00 [INFO] (05) MeshController Starting
-11:26:03 [INFO] (08) MeshController Mesh Requested "stgoldmamesh-177e3a8d60464b7a8e424dbd01c94b8c"
+11:26:03 [INFO] (08) MeshController Mesh Requested "stgoldmamesh177e3a8d60464b7a8e424dbd01c94b8c"
 11:26:03 [INFO] (08) MeshController Started
 11:26:04 [INFO] (07) MeshController Application ApplicationData {Services=null, ProvisioningState="Updating", HealthState="Ok", Status="Creating"}
 11:26:04 [INFO] (04) MeshController Service ServiceData {CodePackages=[ServiceCodePackage {Name="AzureAgentContainer"}], ProvisioningState=null, HealthState="Ok", Status="Unknown"}
@@ -82,7 +82,7 @@ Press [Q] to quit the simulation
 11:27:16 [INFO] (04) MeshController Container: "2019-09-20T15:27:15.639534760+00:00 stdout F 2019-09-20 15:27:15Z: Listening for Jobs"
 11:27:17 [INFO] (04) MeshController Application ApplicationData {Services=null, ProvisioningState="Succeeded", HealthState="Ok", Status="Ready"}
 11:27:29 [INFO] (04) MeshController Stop
-11:27:29 [INFO] (04) MeshController Delete Mesh "stgoldmamesh-image2177e3a8d60464b7a8e424dbd01c94b8c"
+11:27:29 [INFO] (04) MeshController Delete Mesh "stgoldmamesh177e3a8d60464b7a8e424dbd01c94b8c"
 11:27:32 [INFO] (09) MeshController Stopped
 11:27:35 [INFO] (04) MeshController Quitting
 11:27:35 [DBUG] (04) MeshController Quit

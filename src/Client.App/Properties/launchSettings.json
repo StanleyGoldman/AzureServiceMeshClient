@@ -2,11 +2,11 @@
   "profiles": {
     "Client": {
       "commandName": "Project",
-      "commandLineArgs": "-rg stgoldma -n stgoldmamesh-image2 -i stgoldma.azurecr.io/stgoldma/azureagent:latest -ci a45b2ebd-bb85-480e-9ae0-64a2942e896e -irs stgoldma.azurecr.io -iru stgoldma -azpu https://dev.azure.com/stgoldma/"
+      "commandLineArgs": "-rg stgoldma -n stgoldmamesh -i stgoldma.azurecr.io/stgoldma/azureagent:latest -ci a45b2ebd-bb85-480e-9ae0-64a2942e896e -irs stgoldma.azurecr.io -iru stgoldma -azpu https://dev.azure.com/stgoldma/"
     },
     "Client Tracing": {
       "commandName": "Project",
-      "commandLineArgs": "-rg stgoldma -n stgoldmamesh-image2 -i stgoldma.azurecr.io/stgoldma/azureagent:latest -ci a45b2ebd-bb85-480e-9ae0-64a2942e896e -irs stgoldma.azurecr.io -iru stgoldma -azpu https://dev.azure.com/stgoldma/",
+      "commandLineArgs": "-rg stgoldma -n stgoldmamesh -i stgoldma.azurecr.io/stgoldma/azureagent:latest -ci a45b2ebd-bb85-480e-9ae0-64a2942e896e -irs stgoldma.azurecr.io -iru stgoldma -azpu https://dev.azure.com/stgoldma/",
       "environmentVariables": {
         "AzureServiceMeshClient_EnableTracing": "1"
       }
