@@ -166,7 +166,7 @@ namespace Client.App.FirstScenario
                     .GetWithHttpMessagesAsync(_arguments.ResourceGroup, _meshName, ServiceResourceName,
                         cancellationToken: cancellationToken);
 
-                _logger.Verbose("Queryied Service");
+                _logger.Verbose("Queried Service");
 
                 var data = new ServiceData
                 {
@@ -210,7 +210,7 @@ namespace Client.App.FirstScenario
                 }
                 finally
                 {
-                    _logger.Verbose("Queryied Logs");
+                    _logger.Verbose("Queried Logs");
                 }
             }).SubscribeOn(_schedulerProvider.TaskPool);
         }
@@ -227,7 +227,7 @@ namespace Client.App.FirstScenario
                     .GetWithHttpMessagesAsync(_arguments.ResourceGroup, _meshName,
                         cancellationToken: cancellationToken);
 
-                _logger.Verbose("Queryied Application");
+                _logger.Verbose("Queried Application");
 
                 var data = new ApplicationData
                 {
