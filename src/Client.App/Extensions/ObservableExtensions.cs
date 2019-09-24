@@ -1,7 +1,9 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reactive.Concurrency;
 using System.Reactive.Linq;
+using System.Reactive.Subjects;
 using System.Text;
 
 namespace Client.App.Extensions
@@ -120,8 +122,43 @@ namespace Client.App.Extensions
                 var index = 0;
 
                 return input
-                    .Subscribe(item => { observer.OnNext((item, index++)); }, observer.OnError, observer.OnCompleted);
+                    .Subscribe(item =>
+                    {
+                        observer.OnNext((item, index++));
+                    }, observer.OnError, observer.OnCompleted);
             });
+        }
+
+        public static (IObservable<TFirst>, IObservable<TSecond>) SplitTuple<TFirst, TSecond>(
+            this IObservable<(TFirst, TSecond)> observable, IScheduler scheduler)
+        {
+            var replayObservable = observable.Replay();
+
+            var observable1 = Observable.Create<TFirst>(observer =>
+            {
+                return replayObservable
+                    .SubscribeOn(scheduler)
+                    .Subscribe(tuple =>
+                        {
+                            observer.OnNext(tuple.Item1);
+                        },
+                        observer.OnError,
+                        observer.OnCompleted);
+            });
+
+            var observable2 = Observable.Create<TSecond>(observer =>
+            {
+                return replayObservable
+                    .SubscribeOn(scheduler)
+                    .Subscribe(tuple =>
+                        {
+                            observer.OnNext(tuple.Item2);
+                        },
+                        observer.OnError,
+                        observer.OnCompleted);
+            });
+
+            return (observable1, observable2);
         }
     }
 }

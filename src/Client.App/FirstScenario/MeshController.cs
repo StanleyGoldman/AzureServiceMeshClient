@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Net;
 using System.Reactive;
+using System.Reactive.Concurrency;
 using System.Reactive.Disposables;
 using System.Reactive.Linq;
 using System.Reactive.Subjects;
@@ -83,25 +84,25 @@ namespace Client.App.FirstScenario
                 _logger.Information("Mesh Requested {Name}", _meshName);
                 _logger.Information("Started");
 
-                var serviceReadySubject = new Subject<IObservable<string>>();
-
-                var serviceReadyObservable = serviceReadySubject.AsObservable()
-                    .Switch();
+                var pollStartSubject = new Subject<Unit>();
 
                 var serviceReady = false;
 
+                var pollReplicaStateSubscription = _serviceFabricMeshManagementClient
+                    .GetAgentStateObservable(_logger, pollStartSubject.AsObservable(), _arguments.ResourceGroup, _meshName, ServiceResourceName, "0", ServiceContainerName, _schedulerProvider)
+                    .SubscribeOn(_schedulerProvider.TaskPool)
+                    .Subscribe(agentStateEnum =>
+                        {
+                            _logger.Information("AgentState: {@State}", agentStateEnum);
+                        },
+                        exception =>
+                        {
+                            _logger.Error("Container Logs Error: {Message}", exception.Message);
+                        });
+
                 var runningPolls = new[]
                 {
-                    serviceReadySubject,
-
-                    serviceReadyObservable
-                        .SplitRepeatedPrefixByNewline()
-                        .SelectMany(strings => strings)
-                        .Subscribe(item =>
-                            {
-                                _logger.Information("Container: {@Output}", item);
-                            },
-                            exception => { _logger.Error("Container Logs Error: {Message}", exception.Message); }),
+                    pollStartSubject,
 
                     GetApplicationData()
                         .Concat(Observable
@@ -110,6 +111,7 @@ namespace Client.App.FirstScenario
                             .Delay(TimeSpan.FromSeconds(1)))
                         .Repeat()
                         .WhenChanges(tuple => tuple.data)
+                        .SubscribeOn(_schedulerProvider.TaskPool)
                         .Subscribe(tuple =>
                             {
                                 _logger.Verbose("Get Application Response {@Body}", tuple.response.Body);
@@ -123,6 +125,7 @@ namespace Client.App.FirstScenario
                             .Delay(TimeSpan.FromSeconds(1)))
                         .Repeat()
                         .WhenChanges(tuple => tuple.data)
+                        .SubscribeOn(_schedulerProvider.TaskPool)
                         .Subscribe(tuple =>
                             {
                                 _logger.Verbose("Get Service Response {@Body}", tuple.response.Body);
@@ -131,14 +134,11 @@ namespace Client.App.FirstScenario
                                 if (!serviceReady && tuple.data.Status == "Ready")
                                 {
                                     _logger.Debug("Starting Container Output Polling");
-
-                                    var logDataObservable = GetLogData()
-                                        .Concat(Observable
-                                            .Empty<string>()
-                                            .Delay(TimeSpan.FromSeconds(1)))
-                                        .Repeat();
-
-                                    serviceReadySubject.OnNext(logDataObservable);
+                                    _schedulerProvider.TaskPool.Schedule(() =>
+                                    {
+                                        pollStartSubject.OnNext(Unit.Default);
+                                    });
+                                    
                                     serviceReady = true;
                                 }
                             },
@@ -180,38 +180,6 @@ namespace Client.App.FirstScenario
                 };
 
                 return (response, data);
-            }).SubscribeOn(_schedulerProvider.TaskPool);
-        }
-
-        private IObservable<string> GetLogData()
-        {
-            return Observable.DeferAsync(async cancellationToken =>
-            {
-                _logger.Verbose("Querying Logs");
-
-                try
-                {
-                    var response = await _serviceFabricMeshManagementClient
-                        .CodePackage
-                        .GetContainerLogsWithHttpMessagesAsync(_arguments.ResourceGroup, _meshName, ServiceResourceName,
-                            "0", ServiceContainerName, cancellationToken: cancellationToken);
-
-                    var data = response.Body.Content;
-
-                    return Observable.Return(data);
-                }
-                catch (ErrorModelException e)
-                {
-                    if (e.Response.StatusCode == HttpStatusCode.NotFound
-                        || e.Body.Error.Code == "ResourceNotReady")
-                        return Observable.Empty<string>();
-
-                    throw;
-                }
-                finally
-                {
-                    _logger.Verbose("Queried Logs");
-                }
             }).SubscribeOn(_schedulerProvider.TaskPool);
         }
 
