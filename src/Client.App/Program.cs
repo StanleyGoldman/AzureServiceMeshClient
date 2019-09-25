@@ -1,12 +1,18 @@
 ﻿using System;
 using System.Linq;
+using System.Net.Http;
 using Autofac;
+using Autofac.Core;
 using AutofacSerilogIntegration;
 using Client.App.Extensions;
 using Client.App.FirstScenario;
 using Client.App.Serilog;
 using FluentColorConsole;
 using McMaster.Extensions.CommandLineUtils;
+using Microsoft.Azure.Management.ResourceManager.Fluent;
+using Microsoft.Azure.Management.ResourceManager.Fluent.Authentication;
+using Microsoft.Azure.Management.ServiceFabricMesh;
+using Microsoft.Rest;
 using Serilog;
 
 namespace Client.App
@@ -167,18 +173,6 @@ namespace Client.App
 
             app.OnExecute(() =>
             {
-                var containerBuilder = GetContainerBuilder();
-
-                containerBuilder.RegisterType<InputManager>()
-                    .AsSelf();
-
-                containerBuilder.RegisterType<MeshController>()
-                    .AsSelf();
-
-                var container = containerBuilder.Build();
-
-                var firstScenarioManager = container.Resolve<InputManager>();
-
                 var arguments = new Arguments
                 {
                     Name = name.Value(),
@@ -195,7 +189,43 @@ namespace Client.App
                     AzurePipelinesToken = azpToken.Value()
                 };
 
-                return firstScenarioManager.Start(arguments);
+                var credentials = SdkContext.AzureCredentialsFactory
+                    .FromServicePrincipal(arguments.ClientId,
+                        arguments.ClientSecret,
+                        arguments.TenantId,
+                        AzureEnvironment.AzureGlobalCloud);
+
+                var containerBuilder = GetContainerBuilder();
+
+                containerBuilder.RegisterType<InputManager>()
+                    .AsSelf();
+
+                containerBuilder.RegisterType<MeshController>()
+                    .AsSelf();
+
+                containerBuilder.RegisterType<ObservableMeshClient>()
+                    .AsSelf();
+
+                containerBuilder.RegisterInstance(arguments)
+                    .AsSelf();
+
+                containerBuilder.RegisterInstance(credentials)
+                    .As<ServiceClientCredentials>();
+
+                containerBuilder.RegisterType<ServiceFabricMeshManagementClient>()
+                    .UsingConstructor(typeof(ServiceClientCredentials), typeof(DelegatingHandler[]))
+                    .WithParameter("handlers", new DelegatingHandler[0])
+                    .OnActivated(eventArgs =>
+                    {
+                        eventArgs.Instance.SubscriptionId = arguments.SubscriptionId;
+                    })
+                    .AsSelf();
+
+                var container = containerBuilder.Build();
+
+                var inputManager = container.Resolve<InputManager>();
+
+                return inputManager.Start();
             });
 
             return app.Execute(args);

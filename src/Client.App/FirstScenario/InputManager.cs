@@ -17,19 +17,9 @@ namespace Client.App.FirstScenario
             _meshController = meshController;
         }
 
-        public int Start(Arguments arguments)
+        public int Start()
         {
             _logger.Debug("Starting");
-
-            try
-            {
-                _meshController.Initialize(arguments);
-            }
-            catch (Exception e)
-            {
-                _logger.Error(e, "Error Initializing");
-                return 1;
-            }
 
             ColorConsole.WithBlueText.WriteLine("Press [ENTER] to CREATE/DELETE the build agent mesh");
             ColorConsole.WithBlueText.WriteLine("Press [Q] to quit the simulation");
@@ -41,7 +31,8 @@ namespace Client.App.FirstScenario
                     var read = Console.ReadKey(true);
                     if (read.Key == ConsoleKey.Enter)
                     {
-                        _meshController.Toggle().Wait();
+                        var (request, _) = _meshController.Toggle();
+                        request.Wait();
                         continue;
                     }
 

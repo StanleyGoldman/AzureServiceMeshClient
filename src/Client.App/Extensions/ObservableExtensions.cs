@@ -1,7 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Reactive.Concurrency;
 using System.Reactive.Linq;
 using System.Reactive.Subjects;
 using System.Text;
@@ -10,45 +9,6 @@ namespace Client.App.Extensions
 {
     public static class ObservableExtensions
     {
-        public static IObservable<T> WhenChanges<T>(this IObservable<T> input)
-        {
-            return Observable.Create<T>(observer =>
-            {
-                T defaultInstance = default;
-                T lastInstance = default;
-
-                return input.Subscribe(obj =>
-                {
-                    if (Equals(lastInstance, defaultInstance) || !Equals(lastInstance, obj))
-                    {
-                        lastInstance = obj;
-                        observer.OnNext(obj);
-                    }
-                }, observer.OnError, observer.OnCompleted);
-            });
-        }
-
-        public static IObservable<TObject> WhenChanges<TObject, TCompare>(this IObservable<TObject> input,
-            Func<TObject, TCompare> compare)
-        {
-            return Observable.Create<TObject>(observer =>
-            {
-                TCompare defaultInstance = default;
-                TCompare lastInstance = default;
-
-                return input.Subscribe(obj =>
-                {
-                    var yobj = compare(obj);
-
-                    if (Equals(lastInstance, defaultInstance) || !Equals(lastInstance, yobj))
-                    {
-                        lastInstance = yobj;
-                        observer.OnNext(obj);
-                    }
-                }, observer.OnError, observer.OnCompleted);
-            });
-        }
-
         public static IObservable<string[]> SplitRepeatedPrefixByNewline(this IObservable<string> input)
         {
             return Observable.Create<string[]>(observer =>
@@ -130,14 +90,14 @@ namespace Client.App.Extensions
         }
 
         public static (IObservable<TFirst>, IObservable<TSecond>) SplitTuple<TFirst, TSecond>(
-            this IObservable<(TFirst, TSecond)> observable, IScheduler scheduler)
+            this IObservable<(TFirst, TSecond)> observable)
         {
             var replayObservable = observable.Replay();
 
             var observable1 = Observable.Create<TFirst>(observer =>
             {
+                replayObservable.Connect();
                 return replayObservable
-                    .SubscribeOn(scheduler)
                     .Subscribe(tuple =>
                         {
                             observer.OnNext(tuple.Item1);
@@ -148,8 +108,8 @@ namespace Client.App.Extensions
 
             var observable2 = Observable.Create<TSecond>(observer =>
             {
+                replayObservable.Connect();
                 return replayObservable
-                    .SubscribeOn(scheduler)
                     .Subscribe(tuple =>
                         {
                             observer.OnNext(tuple.Item2);
