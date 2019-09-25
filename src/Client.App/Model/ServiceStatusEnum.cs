@@ -1,0 +1,4 @@
+namespace Client.App.Model
+{
+
+}

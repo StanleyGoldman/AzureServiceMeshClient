@@ -7,6 +7,7 @@ using AutofacSerilogIntegration;
 using Client.App.Extensions;
 using Client.App.FirstScenario;
 using Client.App.Serilog;
+using Client.App.Services;
 using FluentColorConsole;
 using McMaster.Extensions.CommandLineUtils;
 using Microsoft.Azure.Management.ResourceManager.Fluent;

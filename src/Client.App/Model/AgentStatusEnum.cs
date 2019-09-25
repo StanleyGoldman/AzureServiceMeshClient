@@ -1,4 +1,4 @@
-namespace Client.App.FirstScenario.Model
+namespace Client.App.Model
 {
     public enum ApplicationStatusEnum
     {

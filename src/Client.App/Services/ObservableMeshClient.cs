@@ -5,16 +5,15 @@ using System.Reactive;
 using System.Reactive.Disposables;
 using System.Reactive.Linq;
 using System.Reactive.Subjects;
-using System.Threading;
-using System.Threading.Tasks;
 using Client.App.Extensions;
-using Client.App.FirstScenario.Model;
+using Client.App.FirstScenario;
+using Client.App.Model;
 using FluentColorConsole;
 using Microsoft.Azure.Management.ServiceFabricMesh;
 using Microsoft.Azure.Management.ServiceFabricMesh.Models;
 using Serilog;
 
-namespace Client.App.FirstScenario
+namespace Client.App.Services
 {
     public class ObservableMeshClient
     {
@@ -273,14 +272,16 @@ namespace Client.App.FirstScenario
                 .SubscribeOn(_schedulerProvider.TaskPool);
         }
 
-        public async Task<string> CreateMesh(CancellationToken token)
+        public IObservable<string> CreateMesh()
         {
-            var meshName = _arguments.Name + CleanGuid();
-            var applicationResourceDescription = new ApplicationResourceDescription
+            return Observable.StartAsync(async token =>
             {
-                Location = "eastus",
-                Services = new List<ServiceResourceDescription>(new[]
+                var meshName = _arguments.Name + CleanGuid();
+                var applicationResourceDescription = new ApplicationResourceDescription
                 {
+                    Location = "eastus",
+                    Services = new List<ServiceResourceDescription>(new[]
+                    {
                     new ServiceResourceDescription
                     {
                         Name = ServiceResourceName,
@@ -309,24 +310,29 @@ namespace Client.App.FirstScenario
                         })
                     }
                 })
-            };
+                };
 
-            var createMeshResponse =
-                await _serviceFabricMeshManagementClient.Application.CreateWithHttpMessagesAsync(
-                    _arguments.ResourceGroup,
-                    meshName,
-                    applicationResourceDescription,
-                    cancellationToken: token);
+                var createMeshResponse =
+                    await _serviceFabricMeshManagementClient.Application.CreateWithHttpMessagesAsync(
+                        _arguments.ResourceGroup,
+                        meshName,
+                        applicationResourceDescription,
+                        cancellationToken: token);
 
-            _logger.Verbose("CreateMeshResponse.Body {@ResponseBody}", createMeshResponse.Body);
+                _logger.Verbose("CreateMeshResponse.Body {@ResponseBody}", createMeshResponse.Body);
 
-            return meshName;
+                return meshName;
+            }, _schedulerProvider.TaskPool);
         }
 
-        public async Task DeleteMesh(string meshName, CancellationToken token)
+        public IObservable<Unit> DeleteMesh(string meshName)
         {
-            await _serviceFabricMeshManagementClient.Application.DeleteWithHttpMessagesAsync(_arguments.ResourceGroup,
-                meshName, cancellationToken: token);
+            return Observable.StartAsync(async token =>
+            {
+                await _serviceFabricMeshManagementClient.Application.DeleteWithHttpMessagesAsync(
+                    _arguments.ResourceGroup,
+                    meshName, cancellationToken: token);
+            });
         }
 
         private static string CleanGuid()

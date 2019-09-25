@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Reactive.Linq;
+using Client.App.Services;
 using FluentColorConsole;
 using Microsoft.Azure.Management.ServiceFabricMesh.Models;
 using Serilog;

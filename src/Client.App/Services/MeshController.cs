@@ -4,10 +4,10 @@ using System.Reactive.Disposables;
 using System.Reactive.Linq;
 using System.Reactive.Subjects;
 using System.Threading;
-using Client.App.FirstScenario.Model;
+using Client.App.Model;
 using Serilog;
 
-namespace Client.App.FirstScenario
+namespace Client.App.Services
 {
     public class MeshController
     {
@@ -39,7 +39,7 @@ namespace Client.App.FirstScenario
             {
                 _autoResetEvent = new AutoResetEvent(false);
                 _logger.Information("Starting");
-                _meshName = await _observableMeshClient.CreateMesh(token);
+                _meshName = await _observableMeshClient.CreateMesh();
 
                 _started = true;
 
@@ -117,20 +117,19 @@ namespace Client.App.FirstScenario
             {
                 _logger.Information("Stopping");
 
-                await _observableMeshClient.DeleteMesh(_meshName, token);
+                await _observableMeshClient.DeleteMesh(_meshName);
 
                 completeObservable= Observable.Start(() =>
                 {
                     _autoResetEvent.WaitOne();
+
+                    _logger.Information("Stopped");
+
+                    _started = false;
+
+                    _pollingDisposable?.Dispose();
+                    _pollingDisposable = null;
                 }).SubscribeOn(_schedulerProvider.TaskPool);
-
-
-                _logger.Information("Stopped");
-
-                _started = false;
-
-                _pollingDisposable?.Dispose();
-                _pollingDisposable = null;
             }).SubscribeOn(_schedulerProvider.TaskPool);
 
             return (request, completeObservable);
