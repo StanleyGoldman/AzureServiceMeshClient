@@ -1,12 +1,23 @@
 {
   "profiles": {
-    "Client": {
+    "Scenario 1": {
       "commandName": "Project",
-      "commandLineArgs": "-rg stgoldma -n stgoldmamesh -i stgoldma.azurecr.io/stgoldma/azureagent:latest -ci a45b2ebd-bb85-480e-9ae0-64a2942e896e -irs stgoldma.azurecr.io -iru stgoldma -azpu https://dev.azure.com/stgoldma/"
+      "commandLineArgs": "scenario1 -rg stgoldma -n stgoldmamesh -i stgoldma.azurecr.io/stgoldma/azureagent:latest -ci a45b2ebd-bb85-480e-9ae0-64a2942e896e -irs stgoldma.azurecr.io -iru stgoldma -azpu https://dev.azure.com/stgoldma/"
     },
-    "Client Tracing": {
+    "Scenario 1 Tracing": {
       "commandName": "Project",
-      "commandLineArgs": "-rg stgoldma -n stgoldmamesh -i stgoldma.azurecr.io/stgoldma/azureagent:latest -ci a45b2ebd-bb85-480e-9ae0-64a2942e896e -irs stgoldma.azurecr.io -iru stgoldma -azpu https://dev.azure.com/stgoldma/",
+      "commandLineArgs": "scenario1 -rg stgoldma -n stgoldmamesh -i stgoldma.azurecr.io/stgoldma/azureagent:latest -ci a45b2ebd-bb85-480e-9ae0-64a2942e896e -irs stgoldma.azurecr.io -iru stgoldma -azpu https://dev.azure.com/stgoldma/",
+      "environmentVariables": {
+        "AzureServiceMeshClient_EnableTracing": "1"
+      }
+    },
+    "Scenario 2": {
+      "commandName": "Project",
+      "commandLineArgs": "scenario2 -mc 35 -mop 15 -rg stgoldma -n stgoldmamesh -i stgoldma.azurecr.io/stgoldma/azureagent:latest -ci a45b2ebd-bb85-480e-9ae0-64a2942e896e -irs stgoldma.azurecr.io -iru stgoldma -azpu https://dev.azure.com/stgoldma/"
+    },
+    "Scenario 2 Tracing": {
+      "commandName": "Project",
+      "commandLineArgs": "scenario2 -mc 35 -mop 15 -rg stgoldma -n stgoldmamesh -i stgoldma.azurecr.io/stgoldma/azureagent:latest -ci a45b2ebd-bb85-480e-9ae0-64a2942e896e -irs stgoldma.azurecr.io -iru stgoldma -azpu https://dev.azure.com/stgoldma/",
       "environmentVariables": {
         "AzureServiceMeshClient_EnableTracing": "1"
       }

@@ -6,11 +6,11 @@ using System.Reactive.Disposables;
 using System.Reactive.Linq;
 using System.Reactive.Subjects;
 using Client.App.Extensions;
-using Client.App.FirstScenario;
 using Client.App.Model;
 using FluentColorConsole;
 using Microsoft.Azure.Management.ServiceFabricMesh;
 using Microsoft.Azure.Management.ServiceFabricMesh.Models;
+using Microsoft.Rest.Azure;
 using Serilog;
 
 namespace Client.App.Services
@@ -26,126 +26,152 @@ namespace Client.App.Services
 
         private const string ServiceResourceName = "AzureAgentResource";
         private const string CodePackageName = "AzureAgentContainer";
-        private readonly Arguments _arguments;
         private readonly ILogger _logger;
         private readonly SchedulerProvider _schedulerProvider;
         private readonly ServiceFabricMeshManagementClient _serviceFabricMeshManagementClient;
 
         public ObservableMeshClient(ServiceFabricMeshManagementClient serviceFabricMeshManagementClient,
             ILogger logger,
-            Arguments arguments,
             SchedulerProvider schedulerProvider)
         {
             _serviceFabricMeshManagementClient = serviceFabricMeshManagementClient;
             _logger = logger;
-            _arguments = arguments;
             _schedulerProvider = schedulerProvider;
         }
 
-        public IObservable<AgentStatusEnum> PollAgentStatus(string applicationResourceName, bool outputContainerLogs = true)
+        public IObservable<AgentStatusEnum> PollAgentStatus(string applicationResourceName, string resourceGroupName,
+            IObservable<Unit> startPollingObservable, IObservable<Unit> applicationFailedObservable,
+            bool outputContainerLogs = true)
         {
-            return Observable.Return(AgentStatusEnum.Unknown)
-                .Concat(Observable.Create<AgentStatusEnum>(observer =>
-                {
-                    var disposables = new CompositeDisposable();
+            var untilSubject = new Subject<Unit>();
+            var switchSubject = new Subject<IObservable<AgentStatusEnum>>();
 
-                    var (stateOutput, containerOutput) = GetContainerLogs(applicationResourceName)
-                        .Concat(Observable
-                            .Empty<(GetContainerLogsResponseEnum, string)>()
-                            .Delay(TimeSpan.FromSeconds(1)))
-                        .Repeat()
-                        .SplitTuple();
+            var activeObservable = Observable.Create<AgentStatusEnum>(observer =>
+            {
+                var disposables = new CompositeDisposable();
 
-                    var lastAgentState = AgentStatusEnum.Unknown;
+                var (stateOutput, containerOutput) = GetContainerLogs(resourceGroupName, applicationResourceName)
+                    .Concat(Observable
+                        .Empty<(GetContainerLogsResponseEnum, string)>()
+                        .Delay(TimeSpan.FromSeconds(1)))
+                    .Repeat()
+                    .TakeUntil(untilSubject)
+                    .SplitTuple();
 
-                    var stateOutputSubscription = stateOutput
-                        .DistinctUntilChanged()
-                        .CombineLatest(Observable.Return(String.Empty)
-                                .Concat(containerOutput
-                                    .Where(s => s != null)
-                                    .DistinctUntilChanged()
-                                    .SplitRepeatedPrefixByNewline()
-                                    .SelectMany(strings => strings)
-                                    .Do(s =>
+                var lastAgentState = AgentStatusEnum.Unknown;
+
+                var stateOutputSubscription = stateOutput
+                    .DistinctUntilChanged()
+                    .CombineLatest(Observable.Return(String.Empty)
+                            .Concat(containerOutput
+                                .Where(s => s != null)
+                                .DistinctUntilChanged()
+                                .SplitRepeatedPrefixByNewline()
+                                .SelectMany(strings => strings)
+                                .Do(s =>
+                                {
+                                    if (outputContainerLogs)
                                     {
-                                        if (outputContainerLogs)
-                                        {
-                                            ColorConsole.WithDarkGreenText.WriteLine(s);
-                                        }
-                                    })),
-                            (state, s) => (state, s))
-                        .Subscribe(tuple =>
+                                        ColorConsole.WithDarkGreenText.WriteLine(s);
+                                    }
+                                })),
+                        (state, s) => (state, s))
+                    .Subscribe(tuple =>
+                    {
+                        var (containerLogsResponse, s) = tuple;
+
+                        if (lastAgentState == AgentStatusEnum.Unknown
+                            && containerLogsResponse == GetContainerLogsResponseEnum.ResourceNotReady)
                         {
-                            var (containerLogsResponse, s) = tuple;
+                            lastAgentState = AgentStatusEnum.NotReady;
+                            observer.OnNext(lastAgentState);
+                            return;
+                        }
 
+                        if ((lastAgentState == AgentStatusEnum.Unknown || lastAgentState == AgentStatusEnum.NotReady)
+                            && containerLogsResponse == GetContainerLogsResponseEnum.Output)
+                        {
+                            lastAgentState = AgentStatusEnum.Starting;
+                            observer.OnNext(lastAgentState);
+                            return;
+                        }
 
-                            if (lastAgentState == AgentStatusEnum.Unknown
-                                && containerLogsResponse == GetContainerLogsResponseEnum.ResourceNotReady)
-                            {
-                                lastAgentState = AgentStatusEnum.NotReady;
-                                observer.OnNext(lastAgentState);
-                                return;
-                            }
+                        if (lastAgentState == AgentStatusEnum.Starting
+                            && containerLogsResponse == GetContainerLogsResponseEnum.Output
+                            && s != null
+                            && s.Contains("Listening for Jobs"))
+                        {
+                            lastAgentState = AgentStatusEnum.Ready;
+                            observer.OnNext(lastAgentState);
+                            return;
+                        }
 
-                            if ((lastAgentState == AgentStatusEnum.Unknown || lastAgentState == AgentStatusEnum.NotReady)
-                                && containerLogsResponse == GetContainerLogsResponseEnum.Output)
-                            {
-                                lastAgentState = AgentStatusEnum.Starting;
-                                observer.OnNext(lastAgentState);
-                                return;
-                            }
+                        if ((lastAgentState != AgentStatusEnum.Unknown && lastAgentState != AgentStatusEnum.NotReady)
+                            && containerLogsResponse != GetContainerLogsResponseEnum.Output)
+                        {
+                            observer.OnNext(AgentStatusEnum.NotFound);
+                            observer.OnCompleted();
+                            switchSubject.OnCompleted();
+                        }
+                    }, observer.OnError, observer.OnCompleted);
+                disposables.Add(stateOutputSubscription);
 
-                            if (lastAgentState == AgentStatusEnum.Starting
-                                && containerLogsResponse == GetContainerLogsResponseEnum.Output
-                                && s != null
-                                && s.Contains("Listening for Jobs"))
-                            {
-                                lastAgentState = AgentStatusEnum.Ready;
-                                observer.OnNext(lastAgentState);
-                                return;
-                            }
+                return disposables;
+            });
 
-                            if ((lastAgentState != AgentStatusEnum.Unknown && lastAgentState != AgentStatusEnum.NotReady)
-                                && containerLogsResponse != GetContainerLogsResponseEnum.Output)
-                            {
-                                observer.OnNext(AgentStatusEnum.NotFound);
-                                observer.OnCompleted();
-                            }
-                        }, observer.OnError, observer.OnCompleted);
-                    disposables.Add(stateOutputSubscription);
+            startPollingObservable.Subscribe(unit =>
+            {
+                switchSubject.OnNext(activeObservable);
+            });
 
-                    return disposables;
-                }));
+            applicationFailedObservable.Subscribe(unit =>
+            {
+                switchSubject.OnNext(Observable.Return(AgentStatusEnum.Failed));
+                switchSubject.OnCompleted();
+            });
+
+            return Observable.Return(AgentStatusEnum.Unknown)
+                .Concat(switchSubject.Switch());
         }
 
-        private IObservable<(GetContainerLogsResponseEnum, string)> GetContainerLogs(string applicationResourceName)
+        private IObservable<(GetContainerLogsResponseEnum, string)> GetContainerLogs(string resourceGroupName, string applicationResourceName)
         {
-
-            return Observable.FromAsync(async cancellationToken =>
+            return Observable.DeferAsync(async cancellationToken =>
             {
                 _logger.Verbose("Querying Logs");
 
+                AzureOperationResponse<ContainerLogs> response = null;
                 try
                 {
-                    var response = await _serviceFabricMeshManagementClient
+                    response = await _serviceFabricMeshManagementClient
                         .CodePackage
-                        .GetContainerLogsWithHttpMessagesAsync(_arguments.ResourceGroup, applicationResourceName,
+                        .GetContainerLogsWithHttpMessagesAsync(resourceGroupName, applicationResourceName,
                             ServiceResourceName,
                             "0",
                             CodePackageName, cancellationToken: cancellationToken);
 
                     var data = response.Body.Content;
 
-                    return (GetContainerLogsResponseEnum.Output, data);
+                    return Observable.Return<(GetContainerLogsResponseEnum, string)>((
+                        GetContainerLogsResponseEnum.Output, data));
                 }
                 catch (ErrorModelException e)
                 {
-                    if (e.Response.StatusCode == HttpStatusCode.NotFound || e.Response.StatusCode == HttpStatusCode.BadRequest)
-                        return (GetContainerLogsResponseEnum.NotFound, (string) null);
+                    if (e.Response.StatusCode == HttpStatusCode.NotFound ||
+                        e.Response.StatusCode == HttpStatusCode.BadRequest)
+                        return Observable.Return<(GetContainerLogsResponseEnum, string)>((
+                            GetContainerLogsResponseEnum.NotFound, (string) null));
 
                     if (e.Body.Error.Code == "NotReady")
-                        return (GetContainerLogsResponseEnum.ResourceNotReady, (string) null);
+                        return Observable.Return<(GetContainerLogsResponseEnum, string)>((
+                            GetContainerLogsResponseEnum.ResourceNotReady, (string) null));
 
+                    _logger.Error(e, "Container Logs Error {Response}", response);
+                    throw;
+                }
+                catch (Exception e)
+                {
+                    _logger.Error(e, "Container Logs Error {Response}", response);
                     throw;
                 }
                 finally
@@ -156,19 +182,20 @@ namespace Client.App.Services
         }
 
         public IObservable<ApplicationStatusEnum> PollApplicationStatus(string applicationResourceName,
-            SchedulerProvider schedulerProvider)
+            string resourceGroupName)
         {
             var untilSubject = new Subject<Unit>();
 
-            var observable = Observable.FromAsync<(ApplicationStatusEnum, object)>(async cancellationToken =>
+            var observable = Observable.DeferAsync(async cancellationToken =>
                 {
                     _logger.Verbose("Querying Application");
 
+                    AzureOperationResponse<ApplicationResourceDescription> response = null;
                     try
                     {
-                        var response = await _serviceFabricMeshManagementClient
+                        response = await _serviceFabricMeshManagementClient
                             .Application
-                            .GetWithHttpMessagesAsync(_arguments.ResourceGroup, applicationResourceName,
+                            .GetWithHttpMessagesAsync(resourceGroupName, applicationResourceName,
                                 cancellationToken: cancellationToken);
 
                         var responseData = new
@@ -178,13 +205,19 @@ namespace Client.App.Services
                             response.Body.Status
                         };
 
-                        return (Enum.Parse<ApplicationStatusEnum>(response.Body.Status), responseData);
+                        return Observable.Return<(ApplicationStatusEnum, object)>((Enum.Parse<ApplicationStatusEnum>(response.Body.Status), responseData));
                     }
                     catch (ErrorModelException e)
                     {
                         if (e.Response.StatusCode == HttpStatusCode.NotFound)
-                            return (ApplicationStatusEnum.NotFound, null);
+                            return Observable.Return<(ApplicationStatusEnum, object)>((ApplicationStatusEnum.NotFound, null));
 
+                        _logger.Error(e, "Application Status Error {Response}", response);
+                        throw;
+                    }
+                    catch (Exception e)
+                    {
+                        _logger.Error(e, "Application Status Error {Response}", response);
                         throw;
                     }
                     finally
@@ -211,23 +244,27 @@ namespace Client.App.Services
 
             return Observable.Return(ApplicationStatusEnum.Unknown)
                 .Concat(observable)
-                .SubscribeOn(schedulerProvider.TaskPool);
+                .SubscribeOn(_schedulerProvider.TaskPool);
         }
 
-        public IObservable<ServiceStatusEnum> PollServiceStatus(string applicationResourceName)
+        public IObservable<ServiceStatusEnum> PollServiceStatus(string applicationResourceName,
+            string resourceGroupName, IObservable<Unit> startPollingObservable,
+            IObservable<Unit> applicationFailedObservable)
         {
             var untilSubject = new Subject<Unit>();
+            var switchSubject = new Subject<IObservable<ServiceStatusEnum>>();
 
-            return Observable.Return(ServiceStatusEnum.Unknown)
-                .Concat(Observable.FromAsync<(ServiceStatusEnum, object)>(async cancellationToken =>
+            var activeObservable = Observable.Return(ServiceStatusEnum.Unknown)
+                .Concat(Observable.DeferAsync(async cancellationToken =>
                     {
                         _logger.Verbose("Start Service.Get");
 
+                        AzureOperationResponse<ServiceResourceDescription> response = null;
                         try
                         {
-                            var response = await _serviceFabricMeshManagementClient
+                            response = await _serviceFabricMeshManagementClient
                                 .Service
-                                .GetWithHttpMessagesAsync(_arguments.ResourceGroup, applicationResourceName,
+                                .GetWithHttpMessagesAsync(resourceGroupName, applicationResourceName,
                                     ServiceResourceName,
                                     cancellationToken: cancellationToken);
 
@@ -238,13 +275,19 @@ namespace Client.App.Services
                                 response.Body.Status
                             };
 
-                            return (Enum.Parse<ServiceStatusEnum>(response.Body.Status), responseData);
+                            return Observable.Return<(ServiceStatusEnum, object)>((Enum.Parse<ServiceStatusEnum>(response.Body.Status), responseData));
                         }
                         catch (ErrorModelException e)
                         {
                             if (e.Response.StatusCode == HttpStatusCode.NotFound)
-                                return (ServiceStatusEnum.NotFound, null);
+                                return Observable.Return<(ServiceStatusEnum, object)>((ServiceStatusEnum.NotFound, null));
 
+                            _logger.Error(e, "Service Status Error {Response}", response);
+                            throw;
+                        }
+                        catch (Exception e)
+                        {
+                            _logger.Error(e, "Service Status Error {Response}", response);
                             throw;
                         }
                         finally
@@ -265,18 +308,34 @@ namespace Client.App.Services
                         {
                             untilSubject.OnNext(Unit.Default);
                             untilSubject.OnCompleted();
+
+                            switchSubject.OnCompleted();
                         }
 
                         return tuple.Item1;
                     }))
                 .SubscribeOn(_schedulerProvider.TaskPool);
+
+
+            startPollingObservable.Subscribe(unit =>
+            {
+                switchSubject.OnNext(activeObservable);
+            });
+
+            applicationFailedObservable.Subscribe(unit =>
+            {
+                switchSubject.OnNext(Observable.Return(ServiceStatusEnum.Failed));
+                switchSubject.OnCompleted();
+            });
+
+            return Observable.Return(ServiceStatusEnum.Unknown)
+                .Concat(switchSubject.Switch());
         }
 
-        public IObservable<string> CreateMesh()
+        public IObservable<string> CreateMesh(string applicationResourceName, string imageRegistryServer, string imageRegistryUsername, string imageRegistryPassword, string imageName, string azurePipelinesUrl, string azurePipelinesToken, string resourceGroupName)
         {
-            return Observable.StartAsync(async token =>
+            return Observable.DeferAsync<string>(async token =>
             {
-                var meshName = _arguments.Name + CleanGuid();
                 var applicationResourceDescription = new ApplicationResourceDescription
                 {
                     Location = "eastus",
@@ -292,15 +351,15 @@ namespace Client.App.Services
                             {
                                 Name = CodePackageName,
                                 ImageRegistryCredential = new ImageRegistryCredential(
-                                    _arguments.ImageRegistryServer,
-                                    _arguments.ImageRegistryUsername,
-                                    _arguments.ImageRegistryPassword),
-                                Image = _arguments.ImageName,
+                                    imageRegistryServer,
+                                    imageRegistryUsername,
+                                    imageRegistryPassword),
+                                Image = imageName,
                                 EnvironmentVariables = new List<EnvironmentVariable>(new[]
                                 {
-                                    new EnvironmentVariable("AZP_AGENT_NAME", $"agent-{CleanGuid()}"),
-                                    new EnvironmentVariable("AZP_URL", _arguments.AzurePipelinesUrl),
-                                    new EnvironmentVariable("AZP_TOKEN", _arguments.AzurePipelinesToken)
+                                    new EnvironmentVariable("AZP_AGENT_NAME", $"agent-{Common.CleanGuid()}"),
+                                    new EnvironmentVariable("AZP_URL", azurePipelinesUrl),
+                                    new EnvironmentVariable("AZP_TOKEN", azurePipelinesToken)
                                 }),
                                 Resources = new ResourceRequirements
                                 {
@@ -314,30 +373,27 @@ namespace Client.App.Services
 
                 var createMeshResponse =
                     await _serviceFabricMeshManagementClient.Application.CreateWithHttpMessagesAsync(
-                        _arguments.ResourceGroup,
-                        meshName,
+                        resourceGroupName,
+                        applicationResourceName,
                         applicationResourceDescription,
                         cancellationToken: token);
 
                 _logger.Verbose("CreateMeshResponse.Body {@ResponseBody}", createMeshResponse.Body);
 
-                return meshName;
-            }, _schedulerProvider.TaskPool);
+                return Observable.Return(applicationResourceName);
+            }).SubscribeOn(_schedulerProvider.TaskPool);
         }
 
-        public IObservable<Unit> DeleteMesh(string meshName)
+        public IObservable<Unit> DeleteMesh(string meshName, string resourceGroupName)
         {
-            return Observable.StartAsync(async token =>
+            return Observable.DeferAsync(async token =>
             {
                 await _serviceFabricMeshManagementClient.Application.DeleteWithHttpMessagesAsync(
-                    _arguments.ResourceGroup,
+                    resourceGroupName,
                     meshName, cancellationToken: token);
-            });
-        }
 
-        private static string CleanGuid()
-        {
-            return Guid.NewGuid().ToString().Replace("-", String.Empty);
+                return Observable.Return(Unit.Default);
+            });
         }
     }
 }

@@ -1,6 +1,5 @@
-﻿namespace Client.App.FirstScenario
+﻿namespace Client.App.Scenarios.First
 {
-
     public class Arguments
     {
         public string Name { get; set; }

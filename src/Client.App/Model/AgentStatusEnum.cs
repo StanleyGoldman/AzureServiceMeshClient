@@ -3,6 +3,7 @@ namespace Client.App.Model
     public enum ApplicationStatusEnum
     {
         Unknown,
+        Failed,
         Creating,
         Ready,
         Deleting,
@@ -13,7 +14,8 @@ namespace Client.App.Model
     {
         Unknown,
         Ready,
-        NotFound
+        NotFound,
+        Failed
     }
 
     public enum AgentStatusEnum
@@ -22,6 +24,7 @@ namespace Client.App.Model
         NotReady,
         Starting,
         Ready,
-        NotFound
+        NotFound,
+        Failed
     }
 }

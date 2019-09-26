@@ -14,10 +14,8 @@ namespace Client.App.Services
         private readonly ILogger _logger;
         private readonly ObservableMeshClient _observableMeshClient;
         private readonly SchedulerProvider _schedulerProvider;
-        private string _meshName;
-        private IDisposable _pollingDisposable;
-        private bool _started;
         private AutoResetEvent _autoResetEvent;
+        private IDisposable _pollingDisposable;
 
         public MeshController(ILogger logger, SchedulerProvider schedulerProvider,
             ObservableMeshClient observableMeshClient)
@@ -27,36 +25,43 @@ namespace Client.App.Services
             _observableMeshClient = observableMeshClient;
         }
 
-        public (IObservable<Unit> request, IObservable<Unit> complete) Toggle()
+        public (IObservable<Unit> request, IObservable<bool> ready) Start(string applicationResourceName,
+            string imageRegistryServer,
+            string imageRegistryUsername, string imageRegistryPassword, string imageName, string azurePipelinesUrl,
+            string azurePipelinesToken, string resourceGroupName,
+            bool outputContainerLogs = true, bool outputComponentStatus = true)
         {
-            return !_started ? Start() : Stop();
-        }
-
-        private (IObservable<Unit> request, IObservable<Unit> ready) Start()
-        {
-            var readySubject = new Subject<Unit>();
-            var request = Observable.StartAsync(async token =>
+            var readySubject = new Subject<bool>();
+            var request = Observable.DeferAsync(async token =>
             {
                 _autoResetEvent = new AutoResetEvent(false);
-                _logger.Information("Starting");
-                _meshName = await _observableMeshClient.CreateMesh();
+                _logger.Information("Starting Mesh {Mesh}", applicationResourceName);
 
-                _started = true;
+                await _observableMeshClient.CreateMesh(applicationResourceName, imageRegistryServer,
+                    imageRegistryUsername, imageRegistryPassword, imageName, azurePipelinesUrl, azurePipelinesToken,
+                    resourceGroupName);
 
-                _logger.Information("Started Mesh {Mesh}", _meshName);
+                var startPollingSubject = new Subject<Unit>();
+                var startPollingObservable = startPollingSubject.AsObservable();
 
-                var pollAgentStatus = _observableMeshClient.PollAgentStatus(_meshName)
+                var applicationFailedSubject = new Subject<Unit>();
+                var applicationFailedObservable = applicationFailedSubject.AsObservable();
+
+                var pollApplicationStatus = _observableMeshClient
+                    .PollApplicationStatus(applicationResourceName, resourceGroupName)
                     .Replay();
 
-                var pollApplicationStatus = _observableMeshClient.PollApplicationStatus(_meshName, _schedulerProvider)
+                var pollServiceStatus = _observableMeshClient
+                    .PollServiceStatus(applicationResourceName, resourceGroupName, startPollingObservable, applicationFailedObservable)
                     .Replay();
 
-                var pollServiceStatus = _observableMeshClient.PollServiceStatus(_meshName)
+                var pollAgentStatus = _observableMeshClient
+                    .PollAgentStatus(applicationResourceName, resourceGroupName, startPollingObservable, applicationFailedObservable, outputContainerLogs)
                     .Replay();
 
                 var pollReplicaStateSubscription = pollAgentStatus
                     .SubscribeOn(_schedulerProvider.TaskPool)
-                    .Subscribe(agentStateEnum => {},
+                    .Subscribe(agentStateEnum => { },
                         exception => { _logger.Error("Container Logs Error: {Message}", exception.Message); });
 
                 var applicationStateObservable = pollApplicationStatus
@@ -83,13 +88,42 @@ namespace Client.App.Services
                     .Subscribe(tuple =>
                         {
                             var (applicationStatus, serviceStatus, agentStatus) = tuple;
-                            _logger.Information("Mesh {Mesh} Application {Application,10} Service {Service,10} Agent {Agent,10}", _meshName, applicationStatus, serviceStatus, agentStatus);
+
+                            if (outputComponentStatus)
+                                _logger.Information(
+                                    "Mesh {Mesh} Application {Application,8} Service {Service,8} Agent {Agent,8}",
+                                    applicationResourceName, applicationStatus, serviceStatus, agentStatus);
 
                             if (applicationStatus == ApplicationStatusEnum.Ready &&
-                                serviceStatus == ServiceStatusEnum.Ready && agentStatus == AgentStatusEnum.Ready)
+                                serviceStatus == ServiceStatusEnum.Ready && 
+                                agentStatus == AgentStatusEnum.Ready)
                             {
-                                readySubject.OnNext(Unit.Default);
+                                readySubject.OnNext(true);
                                 readySubject.OnCompleted();
+                                return;
+                            }
+
+                            if (applicationStatus == ApplicationStatusEnum.Failed &&
+                                serviceStatus == ServiceStatusEnum.Failed && 
+                                agentStatus == AgentStatusEnum.Failed)
+                            {
+                                readySubject.OnNext(false);
+                                readySubject.OnCompleted();
+                                return;
+                            }
+
+                            if (applicationStatus == ApplicationStatusEnum.Failed)
+                            {
+                                applicationFailedSubject.OnNext(Unit.Default);
+                                applicationFailedSubject.OnCompleted();
+                                return;
+                            }
+
+                            if (applicationStatus == ApplicationStatusEnum.Creating)
+                            {
+                                startPollingSubject.OnNext(Unit.Default);
+                                startPollingSubject.OnCompleted();
+                                return;
                             }
                         },
                         () =>
@@ -102,55 +136,42 @@ namespace Client.App.Services
                 pollServiceStatus.Connect();
                 pollAgentStatus.Connect();
 
-                _pollingDisposable = new CompositeDisposable(pollReplicaStateSubscription, applicationStateObservable, serviceDataSubscription, combinedSubscription);
+                _pollingDisposable = new CompositeDisposable(pollReplicaStateSubscription, applicationStateObservable,
+                    serviceDataSubscription, combinedSubscription, readySubject, startPollingSubject, applicationFailedSubject);
+
+                return Observable.Return(Unit.Default);
             }).SubscribeOn(_schedulerProvider.TaskPool);
 
             var ready = readySubject.AsObservable();
             return (request, ready);
         }
 
-        private (IObservable<Unit> request, IObservable<Unit> complete) Stop()
+        public (IObservable<Unit> request, IObservable<Unit> complete) Stop(string applicationResourceName,
+            string resourceGroupName)
         {
-            IObservable<Unit> completeObservable = null;
-
-            var request = Observable.StartAsync(async token =>
+            var completeObservable = Observable.Defer(() =>
             {
-                _logger.Information("Stopping");
+                _autoResetEvent.WaitOne();
 
-                await _observableMeshClient.DeleteMesh(_meshName);
+                _logger.Information("Stopped");
 
-                completeObservable= Observable.Start(() =>
-                {
-                    _autoResetEvent.WaitOne();
-
-                    _logger.Information("Stopped");
-
-                    _started = false;
-
-                    _pollingDisposable?.Dispose();
-                    _pollingDisposable = null;
-                }).SubscribeOn(_schedulerProvider.TaskPool);
-            }).SubscribeOn(_schedulerProvider.TaskPool);
-
-            return (request, completeObservable);
-        }
-
-        public IObservable<Unit> Quit()
-        {
-            return Observable.DeferAsync(async token =>
-            {
-                _logger.Information("Quitting");
-
-                if (_started)
-                {
-                    var (request, complete) = Stop();
-                    await request;
-                }
-
-                _logger.Debug("Quit");
+                _pollingDisposable?.Dispose();
+                _pollingDisposable = null;
 
                 return Observable.Return(Unit.Default);
             }).SubscribeOn(_schedulerProvider.TaskPool);
+            ;
+
+            var request = Observable.DeferAsync(async token =>
+            {
+                _logger.Information("Stopping");
+
+                await _observableMeshClient.DeleteMesh(applicationResourceName, resourceGroupName);
+
+                return Observable.Return(Unit.Default);
+            }).SubscribeOn(_schedulerProvider.TaskPool);
+
+            return (request, completeObservable);
         }
     }
 }
