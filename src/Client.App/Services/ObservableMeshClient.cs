@@ -323,46 +323,15 @@ namespace Client.App.Services
                 .Concat(switchSubject.Switch());
         }
 
-        public IObservable<string> CreateMesh(string applicationResourceName, string imageRegistryServer,
+        public IObservable<string> CreateOrEditMesh(string applicationResourceName, string imageRegistryServer,
             string imageRegistryUsername, string imageRegistryPassword, string imageName, string azurePipelinesUrl,
-            string azurePipelinesToken, string resourceGroupName)
+            string azurePipelinesToken, string resourceGroupName, int? replicaCount = null)
         {
             return Observable.DeferAsync(async token =>
             {
-                var applicationResourceDescription = new ApplicationResourceDescription
-                {
-                    Location = "eastus",
-                    Services = new List<ServiceResourceDescription>(new[]
-                    {
-                        new ServiceResourceDescription
-                        {
-                            Name = ServiceResourceName,
-                            OsType = "linux",
-                            CodePackages = new List<ContainerCodePackageProperties>(new[]
-                            {
-                                new ContainerCodePackageProperties
-                                {
-                                    Name = CodePackageName,
-                                    ImageRegistryCredential = new ImageRegistryCredential(
-                                        imageRegistryServer,
-                                        imageRegistryUsername,
-                                        imageRegistryPassword),
-                                    Image = imageName,
-                                    EnvironmentVariables = new List<EnvironmentVariable>(new[]
-                                    {
-                                        new EnvironmentVariable("AZP_AGENT_NAME", $"agent-{Common.CleanGuid()}"),
-                                        new EnvironmentVariable("AZP_URL", azurePipelinesUrl),
-                                        new EnvironmentVariable("AZP_TOKEN", azurePipelinesToken)
-                                    }),
-                                    Resources = new ResourceRequirements
-                                    {
-                                        Requests = new ResourceRequests(1, 1)
-                                    }
-                                }
-                            })
-                        }
-                    })
-                };
+                var applicationResourceDescription = CreateApplicationResourceDescription(imageRegistryServer,
+                    imageRegistryUsername, imageRegistryPassword, imageName, azurePipelinesUrl, azurePipelinesToken,
+                    replicaCount);
 
                 var createMeshResponse =
                     await _serviceFabricMeshManagementClient.Application.CreateWithHttpMessagesAsync(
@@ -375,6 +344,48 @@ namespace Client.App.Services
 
                 return Observable.Return(applicationResourceName);
             }).SubscribeOn(_schedulerProvider.TaskPool);
+        }
+
+        private static ApplicationResourceDescription CreateApplicationResourceDescription(string imageRegistryServer,
+            string imageRegistryUsername, string imageRegistryPassword, string imageName, string azurePipelinesUrl,
+            string azurePipelinesToken, int? replicaCount = null)
+        {
+            var applicationResourceDescription = new ApplicationResourceDescription
+            {
+                Location = "eastus",
+                Services = new List<ServiceResourceDescription>(new[]
+                {
+                    new ServiceResourceDescription
+                    {
+                        Name = ServiceResourceName,
+                        OsType = "linux",
+                        ReplicaCount = replicaCount,
+                        CodePackages = new List<ContainerCodePackageProperties>(new[]
+                        {
+                            new ContainerCodePackageProperties
+                            {
+                                Name = CodePackageName,
+                                ImageRegistryCredential = new ImageRegistryCredential(
+                                    imageRegistryServer,
+                                    imageRegistryUsername,
+                                    imageRegistryPassword),
+                                Image = imageName,
+                                EnvironmentVariables = new List<EnvironmentVariable>(new[]
+                                {
+                                    new EnvironmentVariable("AZP_AGENT_NAME", $"agent-{Common.CleanGuid()}"),
+                                    new EnvironmentVariable("AZP_URL", azurePipelinesUrl),
+                                    new EnvironmentVariable("AZP_TOKEN", azurePipelinesToken)
+                                }),
+                                Resources = new ResourceRequirements
+                                {
+                                    Requests = new ResourceRequests(1, 1)
+                                }
+                            }
+                        })
+                    }
+                })
+            };
+            return applicationResourceDescription;
         }
 
         public IObservable<Unit> DeleteMesh(string meshName, string resourceGroupName)

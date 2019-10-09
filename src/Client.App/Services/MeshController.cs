@@ -36,7 +36,7 @@ namespace Client.App.Services
             {
                 _logger.Information("Starting Mesh {Mesh}", applicationResourceName);
 
-                await _observableMeshClient.CreateMesh(applicationResourceName, imageRegistryServer,
+                await _observableMeshClient.CreateOrEditMesh(applicationResourceName, imageRegistryServer,
                     imageRegistryUsername, imageRegistryPassword, imageName, azurePipelinesUrl, azurePipelinesToken,
                     resourceGroupName);
 
@@ -175,6 +175,16 @@ namespace Client.App.Services
 
             var ready = readySubject.AsObservable();
             return (request, ready, stop);
+        }
+
+        public IObservable<string> Upscale(string applicationResourceName,
+            string imageRegistryServer,
+            string imageRegistryUsername, string imageRegistryPassword, string imageName, string azurePipelinesUrl,
+            string azurePipelinesToken, string resourceGroupName, int replicaCount)
+        {
+            return _observableMeshClient.CreateOrEditMesh(applicationResourceName, imageRegistryServer,
+                imageRegistryUsername, imageRegistryPassword, imageName, azurePipelinesUrl, azurePipelinesToken,
+                resourceGroupName, replicaCount);
         }
     }
 }

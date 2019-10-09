@@ -50,7 +50,7 @@ namespace Client.App.Scenarios.Third
                             var (request, complete, stop) = _meshController.Start(applicationResourceName,
                                 _arguments.ImageRegistryServer, _arguments.ImageRegistryUsername,
                                 _arguments.ImageRegistryPassword, _arguments.ImageName, _arguments.AzurePipelinesUrl,
-                                _arguments.AzurePipelinesToken, _arguments.ResourceGroup);
+                                _arguments.AzurePipelinesToken, _arguments.ResourceGroup, outputContainerLogs: false);
 
                             meshStopFunc = stop;
 
@@ -63,6 +63,14 @@ namespace Client.App.Scenarios.Third
                         else if (phase == Phase.Started)
                         {
                             _logger.Information("Upscaled");
+
+                            var request = _meshController.Upscale(applicationResourceName,
+                                _arguments.ImageRegistryServer, _arguments.ImageRegistryUsername,
+                                _arguments.ImageRegistryPassword, _arguments.ImageName, _arguments.AzurePipelinesUrl,
+                                _arguments.AzurePipelinesToken, _arguments.ResourceGroup, 2);
+
+                            request.Wait();
+                     
                             phase = Phase.Upscaled;
                         }
                         else
