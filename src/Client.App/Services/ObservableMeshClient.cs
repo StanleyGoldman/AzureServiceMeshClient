@@ -40,7 +40,7 @@ namespace Client.App.Services
         }
 
         public IObservable<AgentStatusEnum> PollAgentStatus(string applicationResourceName, string resourceGroupName,
-            IObservable<Unit> startPollingObservable, IObservable<Unit> applicationFailedObservable,
+            IObservable<Unit> startPollingObservable, IObservable<Unit> applicationFailedObservable, string replicaName,
             bool outputContainerLogs = true)
         {
             var untilSubject = new Subject<Unit>();
@@ -50,7 +50,7 @@ namespace Client.App.Services
             {
                 var disposables = new CompositeDisposable();
 
-                var (stateOutput, containerOutput) = GetContainerLogs(resourceGroupName, applicationResourceName)
+                var (stateOutput, containerOutput) = GetContainerLogs(resourceGroupName, applicationResourceName, replicaName)
                     .Concat(Observable
                         .Empty<(GetContainerLogsResponseEnum, string)>()
                         .Delay(TimeSpan.FromSeconds(1)))
@@ -134,7 +134,7 @@ namespace Client.App.Services
                 .Concat(switchSubject.Switch());
         }
 
-        private IObservable<(GetContainerLogsResponseEnum, string)> GetContainerLogs(string resourceGroupName, string applicationResourceName)
+        private IObservable<(GetContainerLogsResponseEnum, string)> GetContainerLogs(string resourceGroupName, string applicationResourceName, string replicaName)
         {
             return Observable.DeferAsync(async cancellationToken =>
             {
@@ -147,7 +147,7 @@ namespace Client.App.Services
                         .CodePackage
                         .GetContainerLogsWithHttpMessagesAsync(resourceGroupName, applicationResourceName,
                             ServiceResourceName,
-                            "0",
+                            replicaName,
                             CodePackageName, cancellationToken: cancellationToken);
 
                     var data = response.Body.Content;

@@ -56,7 +56,7 @@ namespace Client.App.Services
                     .Replay();
 
                 var pollAgentStatus = _observableMeshClient
-                    .PollAgentStatus(applicationResourceName, resourceGroupName, startPollingObservable, applicationFailedObservable, outputContainerLogs)
+                    .PollAgentStatus(applicationResourceName, resourceGroupName, startPollingObservable, applicationFailedObservable, "0", outputContainerLogs)
                     .Replay();
 
                 var pollReplicaStateSubscription = pollAgentStatus
