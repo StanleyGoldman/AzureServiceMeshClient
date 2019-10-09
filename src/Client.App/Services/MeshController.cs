@@ -14,8 +14,6 @@ namespace Client.App.Services
         private readonly ILogger _logger;
         private readonly ObservableMeshClient _observableMeshClient;
         private readonly SchedulerProvider _schedulerProvider;
-        private AutoResetEvent _autoResetEvent;
-        private IDisposable _pollingDisposable;
 
         public MeshController(ILogger logger, SchedulerProvider schedulerProvider,
             ObservableMeshClient observableMeshClient)
@@ -25,16 +23,17 @@ namespace Client.App.Services
             _observableMeshClient = observableMeshClient;
         }
 
-        public (IObservable<Unit> request, IObservable<bool> ready) Start(string applicationResourceName,
+        public (IObservable<Unit> request, IObservable<bool> ready, Func<(IObservable<Unit> request, IObservable<Unit> complete)> stop) Start(string applicationResourceName,
             string imageRegistryServer,
             string imageRegistryUsername, string imageRegistryPassword, string imageName, string azurePipelinesUrl,
             string azurePipelinesToken, string resourceGroupName,
             bool outputContainerLogs = true, bool outputComponentStatus = true)
         {
+            var autoResetEvent = new AutoResetEvent(false);
+            var disposable = new CompositeDisposable();
             var readySubject = new Subject<bool>();
             var request = Observable.DeferAsync(async token =>
             {
-                _autoResetEvent = new AutoResetEvent(false);
                 _logger.Information("Starting Mesh {Mesh}", applicationResourceName);
 
                 await _observableMeshClient.CreateMesh(applicationResourceName, imageRegistryServer,
@@ -56,7 +55,7 @@ namespace Client.App.Services
                     .Replay();
 
                 var pollAgentStatus = _observableMeshClient
-                    .PollAgentStatus(applicationResourceName, resourceGroupName, startPollingObservable, applicationFailedObservable, "0", outputContainerLogs)
+                    .PollAgentStatus(applicationResourceName, resourceGroupName, startPollingObservable, applicationFailedObservable, 0, outputContainerLogs)
                     .Replay();
 
                 var pollReplicaStateSubscription = pollAgentStatus
@@ -129,49 +128,53 @@ namespace Client.App.Services
                         () =>
                         {
                             _logger.Debug("Streams completed");
-                            _autoResetEvent.Set();
+                            autoResetEvent.Set();
                         });
 
                 pollApplicationStatus.Connect();
                 pollServiceStatus.Connect();
                 pollAgentStatus.Connect();
 
-                _pollingDisposable = new CompositeDisposable(pollReplicaStateSubscription, applicationStateObservable,
-                    serviceDataSubscription, combinedSubscription, readySubject, startPollingSubject, applicationFailedSubject);
+                disposable.Add(pollReplicaStateSubscription);
+                disposable.Add(applicationStateObservable);
+                disposable.Add(serviceDataSubscription);
+                disposable.Add(combinedSubscription);
+                disposable.Add(readySubject);
+                disposable.Add(startPollingSubject);
+                disposable.Add(applicationFailedSubject);
 
                 return Observable.Return(Unit.Default);
             }).SubscribeOn(_schedulerProvider.TaskPool);
+
+            Func<(IObservable<Unit> request, IObservable<Unit> complete)> stop = () =>
+            {
+                var completeObservable = Observable.Defer(() =>
+                {
+                    autoResetEvent.WaitOne();
+
+                    _logger.Information("Stopped");
+
+                    disposable.Dispose();
+                    disposable = null;
+
+                    return Observable.Return(Unit.Default);
+                }).SubscribeOn(_schedulerProvider.TaskPool);
+                ;
+
+                var stopRequest = Observable.DeferAsync(async token =>
+                {
+                    _logger.Information("Stopping");
+
+                    await _observableMeshClient.DeleteMesh(applicationResourceName, resourceGroupName);
+
+                    return Observable.Return(Unit.Default);
+                }).SubscribeOn(_schedulerProvider.TaskPool);
+
+                return (stopRequest, completeObservable);
+            };
 
             var ready = readySubject.AsObservable();
-            return (request, ready);
-        }
-
-        public (IObservable<Unit> request, IObservable<Unit> complete) Stop(string applicationResourceName,
-            string resourceGroupName)
-        {
-            var completeObservable = Observable.Defer(() =>
-            {
-                _autoResetEvent.WaitOne();
-
-                _logger.Information("Stopped");
-
-                _pollingDisposable?.Dispose();
-                _pollingDisposable = null;
-
-                return Observable.Return(Unit.Default);
-            }).SubscribeOn(_schedulerProvider.TaskPool);
-            ;
-
-            var request = Observable.DeferAsync(async token =>
-            {
-                _logger.Information("Stopping");
-
-                await _observableMeshClient.DeleteMesh(applicationResourceName, resourceGroupName);
-
-                return Observable.Return(Unit.Default);
-            }).SubscribeOn(_schedulerProvider.TaskPool);
-
-            return (request, completeObservable);
+            return (request, ready, stop);
         }
     }
 }

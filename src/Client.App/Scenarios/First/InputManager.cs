@@ -27,7 +27,7 @@ namespace Client.App.Scenarios.First
             ColorConsole.WithBlueText.WriteLine("Press [Q] to quit the simulation");
 
             var started = false;
-            string applicationResourceName = null;
+            Func<(IObservable<Unit> request, IObservable<Unit> complete)> stopFunction = null;
 
             try
             {
@@ -38,18 +38,20 @@ namespace Client.App.Scenarios.First
                     {
                         if (!started)
                         {
-                            applicationResourceName = _arguments.Name + Common.CleanGuid();
-                            var (request, complete) = _meshController.Start(applicationResourceName,
+                            var applicationResourceName = _arguments.Name + Common.CleanGuid();
+                            var (request, complete, stop) = _meshController.Start(applicationResourceName,
                                                             _arguments.ImageRegistryServer, _arguments.ImageRegistryUsername,
                                                             _arguments.ImageRegistryPassword, _arguments.ImageName, _arguments.AzurePipelinesUrl,
                                                             _arguments.AzurePipelinesToken, _arguments.ResourceGroup);
+
+                            stopFunction = stop;
 
                             request.Wait();
                             complete.Wait();
                         }
                         else
                         {
-                            var (request, complete) = _meshController.Stop(applicationResourceName, _arguments.ResourceGroup);
+                            var (request, complete) = stopFunction();
 
                             request.Wait();
                             complete.Wait();
@@ -76,7 +78,7 @@ namespace Client.App.Scenarios.First
             {
                 if (started)
                 {
-                    var (request, _) = _meshController.Stop(applicationResourceName, _arguments.ResourceGroup);
+                    var (request, _) = stopFunction();
                     request.Wait();
                 }
             }

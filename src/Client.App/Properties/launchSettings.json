@@ -24,7 +24,7 @@
     },
     "Scenario 3": {
       "commandName": "Project",
-      "commandLineArgs": "scenario3 -rg stgoldma -n stgoldmamesh -i stgoldma.azurecr.io/stgoldma/azureagent:latest -ci a45b2ebd-bb85-480e-9ae0-64a2942e896e -irs stgoldma.azurecr.io -iru stgoldma -azpu https://dev.azure.com/stgoldma/"
+      "commandLineArgs": "scenario3 -rg stgoldma -n stgoldmamesh -i stgoldma.azurecr.io/stgoldma/azureagent:latest -irs stgoldma.azurecr.io -iru stgoldma -azpu https://dev.azure.com/stgoldma/"
     },
     "Help": {
       "commandName": "Project",

@@ -17,13 +17,6 @@ namespace Client.App.Services
 {
     public class ObservableMeshClient
     {
-        enum GetContainerLogsResponseEnum
-        {
-            NotFound,
-            ResourceNotReady,
-            Output
-        }
-
         private const string ServiceResourceName = "AzureAgentResource";
         private const string CodePackageName = "AzureAgentContainer";
         private readonly ILogger _logger;
@@ -40,7 +33,7 @@ namespace Client.App.Services
         }
 
         public IObservable<AgentStatusEnum> PollAgentStatus(string applicationResourceName, string resourceGroupName,
-            IObservable<Unit> startPollingObservable, IObservable<Unit> applicationFailedObservable, string replicaName,
+            IObservable<Unit> startPollingObservable, IObservable<Unit> applicationFailedObservable, int replica,
             bool outputContainerLogs = true)
         {
             var untilSubject = new Subject<Unit>();
@@ -50,19 +43,20 @@ namespace Client.App.Services
             {
                 var disposables = new CompositeDisposable();
 
-                var (stateOutput, containerOutput) = GetContainerLogs(resourceGroupName, applicationResourceName, replicaName)
-                    .Concat(Observable
-                        .Empty<(GetContainerLogsResponseEnum, string)>()
-                        .Delay(TimeSpan.FromSeconds(1)))
-                    .Repeat()
-                    .TakeUntil(untilSubject)
-                    .SplitTuple();
+                var (stateOutput, containerOutput) =
+                    GetContainerLogs(resourceGroupName, applicationResourceName, replica)
+                        .Concat(Observable
+                            .Empty<(GetContainerLogsResponseEnum, string)>()
+                            .Delay(TimeSpan.FromSeconds(1)))
+                        .Repeat()
+                        .TakeUntil(untilSubject)
+                        .SplitTuple();
 
                 var lastAgentState = AgentStatusEnum.Unknown;
 
                 var stateOutputSubscription = stateOutput
                     .DistinctUntilChanged()
-                    .CombineLatest(Observable.Return(String.Empty)
+                    .CombineLatest(Observable.Return(string.Empty)
                             .Concat(containerOutput
                                 .Where(s => s != null)
                                 .DistinctUntilChanged()
@@ -70,10 +64,7 @@ namespace Client.App.Services
                                 .SelectMany(strings => strings)
                                 .Do(s =>
                                 {
-                                    if (outputContainerLogs)
-                                    {
-                                        ColorConsole.WithDarkGreenText.WriteLine(s);
-                                    }
+                                    if (outputContainerLogs) ColorConsole.WithDarkGreenText.WriteLine(s);
                                 })),
                         (state, s) => (state, s))
                     .Subscribe(tuple =>
@@ -106,8 +97,9 @@ namespace Client.App.Services
                             return;
                         }
 
-                        if ((lastAgentState != AgentStatusEnum.Unknown && lastAgentState != AgentStatusEnum.NotReady)
-                            && containerLogsResponse != GetContainerLogsResponseEnum.Output)
+                        if (lastAgentState != AgentStatusEnum.Unknown && lastAgentState != AgentStatusEnum.NotReady
+                                                                      && containerLogsResponse !=
+                                                                      GetContainerLogsResponseEnum.Output)
                         {
                             observer.OnNext(AgentStatusEnum.NotFound);
                             observer.OnCompleted();
@@ -119,10 +111,7 @@ namespace Client.App.Services
                 return disposables;
             });
 
-            startPollingObservable.Subscribe(unit =>
-            {
-                switchSubject.OnNext(activeObservable);
-            });
+            startPollingObservable.Subscribe(unit => { switchSubject.OnNext(activeObservable); });
 
             applicationFailedObservable.Subscribe(unit =>
             {
@@ -134,7 +123,8 @@ namespace Client.App.Services
                 .Concat(switchSubject.Switch());
         }
 
-        private IObservable<(GetContainerLogsResponseEnum, string)> GetContainerLogs(string resourceGroupName, string applicationResourceName, string replicaName)
+        private IObservable<(GetContainerLogsResponseEnum, string)> GetContainerLogs(string resourceGroupName,
+            string applicationResourceName, int replica)
         {
             return Observable.DeferAsync(async cancellationToken =>
             {
@@ -147,7 +137,7 @@ namespace Client.App.Services
                         .CodePackage
                         .GetContainerLogsWithHttpMessagesAsync(resourceGroupName, applicationResourceName,
                             ServiceResourceName,
-                            replicaName,
+                            replica.ToString(),
                             CodePackageName, cancellationToken: cancellationToken);
 
                     var data = response.Body.Content;
@@ -205,12 +195,14 @@ namespace Client.App.Services
                             response.Body.Status
                         };
 
-                        return Observable.Return<(ApplicationStatusEnum, object)>((Enum.Parse<ApplicationStatusEnum>(response.Body.Status), responseData));
+                        return Observable.Return<(ApplicationStatusEnum, object)>((
+                            Enum.Parse<ApplicationStatusEnum>(response.Body.Status), responseData));
                     }
                     catch (ErrorModelException e)
                     {
                         if (e.Response.StatusCode == HttpStatusCode.NotFound)
-                            return Observable.Return<(ApplicationStatusEnum, object)>((ApplicationStatusEnum.NotFound, null));
+                            return Observable.Return<(ApplicationStatusEnum, object)>((ApplicationStatusEnum.NotFound,
+                                null));
 
                         _logger.Error(e, "Application Status Error {Response}", response);
                         throw;
@@ -275,12 +267,14 @@ namespace Client.App.Services
                                 response.Body.Status
                             };
 
-                            return Observable.Return<(ServiceStatusEnum, object)>((Enum.Parse<ServiceStatusEnum>(response.Body.Status), responseData));
+                            return Observable.Return<(ServiceStatusEnum, object)>((
+                                Enum.Parse<ServiceStatusEnum>(response.Body.Status), responseData));
                         }
                         catch (ErrorModelException e)
                         {
                             if (e.Response.StatusCode == HttpStatusCode.NotFound)
-                                return Observable.Return<(ServiceStatusEnum, object)>((ServiceStatusEnum.NotFound, null));
+                                return Observable.Return<(ServiceStatusEnum, object)>(
+                                    (ServiceStatusEnum.NotFound, null));
 
                             _logger.Error(e, "Service Status Error {Response}", response);
                             throw;
@@ -317,10 +311,7 @@ namespace Client.App.Services
                 .SubscribeOn(_schedulerProvider.TaskPool);
 
 
-            startPollingObservable.Subscribe(unit =>
-            {
-                switchSubject.OnNext(activeObservable);
-            });
+            startPollingObservable.Subscribe(unit => { switchSubject.OnNext(activeObservable); });
 
             applicationFailedObservable.Subscribe(unit =>
             {
@@ -332,43 +323,45 @@ namespace Client.App.Services
                 .Concat(switchSubject.Switch());
         }
 
-        public IObservable<string> CreateMesh(string applicationResourceName, string imageRegistryServer, string imageRegistryUsername, string imageRegistryPassword, string imageName, string azurePipelinesUrl, string azurePipelinesToken, string resourceGroupName)
+        public IObservable<string> CreateMesh(string applicationResourceName, string imageRegistryServer,
+            string imageRegistryUsername, string imageRegistryPassword, string imageName, string azurePipelinesUrl,
+            string azurePipelinesToken, string resourceGroupName)
         {
-            return Observable.DeferAsync<string>(async token =>
+            return Observable.DeferAsync(async token =>
             {
                 var applicationResourceDescription = new ApplicationResourceDescription
                 {
                     Location = "eastus",
                     Services = new List<ServiceResourceDescription>(new[]
                     {
-                    new ServiceResourceDescription
-                    {
-                        Name = ServiceResourceName,
-                        OsType = "linux",
-                        CodePackages = new List<ContainerCodePackageProperties>(new[]
+                        new ServiceResourceDescription
                         {
-                            new ContainerCodePackageProperties
+                            Name = ServiceResourceName,
+                            OsType = "linux",
+                            CodePackages = new List<ContainerCodePackageProperties>(new[]
                             {
-                                Name = CodePackageName,
-                                ImageRegistryCredential = new ImageRegistryCredential(
-                                    imageRegistryServer,
-                                    imageRegistryUsername,
-                                    imageRegistryPassword),
-                                Image = imageName,
-                                EnvironmentVariables = new List<EnvironmentVariable>(new[]
+                                new ContainerCodePackageProperties
                                 {
-                                    new EnvironmentVariable("AZP_AGENT_NAME", $"agent-{Common.CleanGuid()}"),
-                                    new EnvironmentVariable("AZP_URL", azurePipelinesUrl),
-                                    new EnvironmentVariable("AZP_TOKEN", azurePipelinesToken)
-                                }),
-                                Resources = new ResourceRequirements
-                                {
-                                    Requests = new ResourceRequests(1, 1)
+                                    Name = CodePackageName,
+                                    ImageRegistryCredential = new ImageRegistryCredential(
+                                        imageRegistryServer,
+                                        imageRegistryUsername,
+                                        imageRegistryPassword),
+                                    Image = imageName,
+                                    EnvironmentVariables = new List<EnvironmentVariable>(new[]
+                                    {
+                                        new EnvironmentVariable("AZP_AGENT_NAME", $"agent-{Common.CleanGuid()}"),
+                                        new EnvironmentVariable("AZP_URL", azurePipelinesUrl),
+                                        new EnvironmentVariable("AZP_TOKEN", azurePipelinesToken)
+                                    }),
+                                    Resources = new ResourceRequirements
+                                    {
+                                        Requests = new ResourceRequests(1, 1)
+                                    }
                                 }
-                            }
-                        })
-                    }
-                })
+                            })
+                        }
+                    })
                 };
 
                 var createMeshResponse =
@@ -394,6 +387,13 @@ namespace Client.App.Services
 
                 return Observable.Return(Unit.Default);
             });
+        }
+
+        private enum GetContainerLogsResponseEnum
+        {
+            NotFound,
+            ResourceNotReady,
+            Output
         }
     }
 }

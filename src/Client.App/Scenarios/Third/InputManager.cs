@@ -12,23 +12,31 @@ namespace Client.App.Scenarios.Third
 {
     public class InputManager
     {
+        private enum Phase
+        {
+            Off,
+            Started,
+            Upscaled
+        }
         private readonly ILogger _logger;
-        private readonly Func<MeshController> _meshControllerFactory;
+        private readonly MeshController _meshController;
         private readonly Arguments _arguments;
 
-        public InputManager(ILogger logger, Func<MeshController> meshControllerFactory, Arguments arguments)
+        public InputManager(ILogger logger, MeshController meshController, Arguments arguments)
         {
             _logger = logger;
-            _meshControllerFactory = meshControllerFactory;
+            _meshController = meshController;
             _arguments = arguments;
         }
 
         public int Start()
         {
-            ColorConsole.WithBlueText.WriteLine("Press [ENTER] to CREATE/DELETE the build agent mesh");
+            ColorConsole.WithBlueText.WriteLine("Press [ENTER] to Start the build agent mesh");
             ColorConsole.WithBlueText.WriteLine("Press [Q] to quit the simulation");
 
-            var started = false;
+            var phase = Phase.Off;
+            Func<(IObservable<Unit> request, IObservable<Unit> complete)> meshStopFunc = null;
+            var applicationResourceName = _arguments.Name + Common.CleanGuid();
 
             try
             {
@@ -37,16 +45,37 @@ namespace Client.App.Scenarios.Third
                     var read = Console.ReadKey(true);
                     if (read.Key == ConsoleKey.Enter)
                     {
-                        if (!started)
+                        if (phase == Phase.Off)
                         {
+                            var (request, complete, stop) = _meshController.Start(applicationResourceName,
+                                _arguments.ImageRegistryServer, _arguments.ImageRegistryUsername,
+                                _arguments.ImageRegistryPassword, _arguments.ImageName, _arguments.AzurePipelinesUrl,
+                                _arguments.AzurePipelinesToken, _arguments.ResourceGroup);
+
+                            meshStopFunc = stop;
+
+                            request.Wait();
+                            complete.Wait();
+
                             _logger.Information("Started");
+                            phase = Phase.Started;
+                        }
+                        else if (phase == Phase.Started)
+                        {
+                            _logger.Information("Upscaled");
+                            phase = Phase.Upscaled;
                         }
                         else
                         {
+                            var (request, complete) = meshStopFunc();
+
+                            request.Wait();
+                            complete.Wait();
+
                             _logger.Information("Stopped");
+                            phase = Phase.Off;
                         }
 
-                        started = !started;
                         continue;
                     }
 

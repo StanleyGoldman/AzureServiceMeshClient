@@ -29,7 +29,7 @@ namespace Client.App.Scenarios.Second
             ColorConsole.WithBlueText.WriteLine("Press [Q] to quit the simulation");
 
             var started = false;
-            IList<(string applicationResourceName, MeshController meshController)> list = null;
+            Func<(IObservable<Unit> request, IObservable<Unit> complete)>[] list = null;
 
             try
             {
@@ -47,12 +47,13 @@ namespace Client.App.Scenarios.Second
                                     var s = _arguments.Name + Common.CleanGuid();
 
                                     var meshController = _meshControllerFactory();
-                                    var tuple1 = meshController.Start(s,
+                                    var (request, ready, stop) = meshController.Start(s,
                                         _arguments.ImageRegistryServer, _arguments.ImageRegistryUsername,
                                         _arguments.ImageRegistryPassword, _arguments.ImageName, _arguments.AzurePipelinesUrl,
                                         _arguments.AzurePipelinesToken, _arguments.ResourceGroup, false, true);
 
-                                    return Observable.Return<(string applicationResourceName, MeshController, IObservable<Unit> request, IObservable<bool> ready)>((s, meshController, tuple1.request, tuple1.ready));
+                                    var valueTuple = (request, ready, stop);
+                                    return Observable.Return(valueTuple);
                                 })
                                 .Repeat(_arguments.MeshCount)
                                 .Select((tuple, i) => Observable.DeferAsync(async token =>
@@ -69,7 +70,7 @@ namespace Client.App.Scenarios.Second
 
                                     semaphoreSlim.Release();
 
-                                    return Observable.Return<(string applicationResourceName, MeshController)>((tuple.applicationResourceName, tuple.Item2));
+                                    return Observable.Return(tuple.stop);
                                 }))
                                 .SelectMany(observable => observable)
                                 .ToArray()
@@ -80,7 +81,7 @@ namespace Client.App.Scenarios.Second
                         else
                         {
                             list.ToObservable()
-                                .Select(tuple => tuple.meshController.Stop(tuple.applicationResourceName, _arguments.ResourceGroup))
+                                .Select(stop => stop())
                                 .Select((tuple, i) => Observable.DeferAsync(async token =>
                                 {
                                     semaphoreSlim.Wait(token);
